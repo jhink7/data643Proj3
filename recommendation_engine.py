@@ -6,8 +6,8 @@ class RecommendationEngine:
     MAX_RECS = 3
     MAX_RATING = 5
     lambda_ = 0.1
-    num_factors = 100
-    n_iterations = 100
+    num_factors = 50
+    n_iterations = 200
 
     def __init__(self):
         self.name = 'recommendation engine'
