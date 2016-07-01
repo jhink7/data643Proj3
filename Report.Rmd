@@ -1,0 +1,189 @@
+---
+title: "DATA 643 Project 3"
+author: "Justin Hink"
+date: "June 30, 2016"
+output: pdf_document
+---
+
+```{r load-data, echo=FALSE, eval=TRUE, results='hide',message=FALSE}
+library(plyr)
+library(knitr)
+library(knitcitations)
+library(RefManageR)
+library(ggplot2)
+library(grid)
+library(gridExtra)
+library(XLConnect)
+library(reshape2)
+
+cleanbib()
+cite_options(style="markdown")
+
+bib <- bibentry(bibtype="Misc", 
+                              author=person(family="v"),
+                              title="Alternating Least Squares Method for Collaborative Filtering",
+                              year=2015,
+                              url="http://bugra.github.io/work/notes/2014-04-19/alternating-least-squares-method-for-collaborative-filtering/"
+                              )
+
+```
+
+## Introduction
+
+For the third project in this course I'm sticking with a movie recommendation engine, again with a toy dataset that I've created.  The new feature being added this week is a methods (and corresponding API) that returns a user's #1 recommended movie by leveraging an ALS selection algorithm.  
+
+Again, I've wrapped the engine has been wrapped in RESTful Flask web service to prove out how such a system might be stood up as a microservice in a larger environment.
+
+## Code
+
+For a full listing, please visit the project's source code repo at:
+
+https://github.com/jhink7/data643Proj3
+
+## Data
+
+As mentioned, the dataset used for this exercise was completely fabricated. The values within do not represent anything real.
+
+However, the structure of the data is similar to what you might see in a real world application.  We have 3 tables and they are defined as follows:
+
+### Users
+
+var    | description                                      
+-------| ------------------------------------------------ 
+`id`   | A simple integer id for a user            
+`name` | Name of the user     
+
+### Movies
+
+var     | description                                      
+--------| ------------------------------------------------ 
+`movie_id`    | A simple integer id for a movie            
+`title` | Name of the movie  
+
+\pagebreak
+
+### Ratings
+
+var       | description                                      
+----------| ------------------------------------------------ 
+`id`      | A simple integer id for a movie            
+`user_id` | An integer id of the user making the rating
+`movie_id`| An integer id of the move being rated
+`rating`  | The rating for the movie (integers from 1 to 5 inclusive)
+
+The data is stored in CSV files and loaded via pandas.  Since the data is already in a fairly decent relational form, porting this dataset to SQLite or Postgres (or any RDBMS for that matter) would be fairly trivial.
+
+## Top Recommendation Engine Algorithm
+
+The algorithm I've implemented uses alternating leas squares (ALS).  
+
+In this approach, we create factor matrices X and Y.  X is a factor matrix where each movie is a column vector and Y is a factor matrix where each row represents a user.  We have 2 unknowns and wil use an iterative approach to estimate both from each other.
+
+The heart of the algorithm can be seen in the following code snippet (which is inside the def generate_top_recommendation(self, target_user_id): function)
+
+```{python, eval=FALSE}
+      # rebuild X and Y, decreasing our error (hopefully) with each iteration
+      for j in range(self.n_iterations):
+          # Update Y
+          for i, Wi in enumerate(wt.T):
+              Y[:, i] = np.linalg.solve(np.dot(X.T, np.dot(np.diag(Wi), X)) 
+                                      + self.lambda_ * np.eye(self.num_factors),
+                                        np.dot(X.T, np.dot(np.diag(Wi), Q[:, i])))
+          # Update X
+          for k, Wu in enumerate(wt):
+              X[k] = np.linalg.solve(np.dot(Y, np.dot(np.diag(Wu), Y.T)) 
+                                    + self.lambda_ * np.eye(self.num_factors),
+                                     np.dot(Y, np.dot(np.diag(Wu), Q[k].T))).T
+                                     
+         error = self.get_error(Q, X, Y, wt)
+         errors.append(error)
+```
+
+As the inline comments indicate, we're looking for the errors converge to a near 0 value.  The number of iterations run is a tweakable value but the algo does seem to converge very quickly, with around 10 iterations usually doing a fairly solid job of providing answers similar to higher iteration runs.
+
+In a 200 iteration run, the errors converge to 0 as follows (in other words, very quickly indeed):
+
+```{r, message=FALSE, echo=FALSE, fig.height=5, fig.width=7.5,warning=FALSE}
+
+
+
+errors <- c(66.892102619655333, 5.7485784053649898, 2.8845846745473755, 1.7809767214796206, 1.2288132608412756, 0.91036681585361701, 0.709144377805631, 0.57356910724390264, 0.47776224401942635, 0.40751413088786909, 0.3544695274349845, 0.31344321209715409, 0.28107349503748891, 0.25510064530815124, 0.23395870404453839, 0.21653390384866253, 0.20201610136375769, 0.18980434549529385, 0.17944510630323096, 0.1705908358450163, 0.16297154035222658, 0.15637488558100879, 0.15063202248463695, 0.14560732398186071, 0.14119084398033316, 0.13729270218171585, 0.13383885156028644, 0.1307678521439653, 0.12802838637627592, 0.12557732730413212, 0.1233782232913445, 0.12140009967611243, 0.11961650382171699, 0.11800473868276581, 0.11654524355299548, 0.11522109058544969, 0.11401757301924066, 0.11292186652991559, 0.11192274924906247, 0.11101036913257695, 0.11017604975374155, 0.10941212744339585, 0.10871181413099373, 0.10806908135755131, 0.10747856180862278, 0.10693546540801437, 0.10643550756282655, 0.10597484758927492, 0.10555003570059286, 0.1051579672219759, 0.10479584292701327, 0.10446113457663456, 0.10415155489392502, 0.1038650313329352, 0.10359968310231392, 0.10335380098932115, 0.10312582960006011, 0.10291435169007167, 0.10271807430824172, 0.10253581651760652, 0.10236649849091733, 0.10220913180758805, 0.10206281080291814, 0.10192670484111446, 0.10180005140104112, 0.10168214987850278, 0.10157235602156892, 0.10147007692625037, 0.10137476652915156, 0.10128592154172458, 0.10120307777761769, 0.10112580683053174, 0.10105371306520355, 0.10098643088847814, 0.10092362227143561, 0.10086497449679563, 0.10081019810881846, 0.10075902504547743, 0.10071120693492426, 0.10066651354024191, 0.10062473133820138, 0.10058566221929624, 0.10054912229763063, 0.10051494082046067, 0.10048295916822728, 0.10045302993683419, 0.10042501609479487, 0.10039879020855458, 0.10037423372997845, 0.10035123634060059, 0.10032969534768535, 0.10030951512768807, 0.10029060661308196, 0.10027288681889326, 0.10025627840563278, 0.1002407092756149, 0.10022611219991892, 0.1002124244734916, 0.10019958759611523, 0.10018754697717834, 0.10017625166233089, 0.10016565408030931, 0.10015570980833438, 0.10014637735463983, 0.10013761795679757, 0.10012939539462455, 0.10012167581654366, 0.10011442757839956, 0.10010762109374408, 0.10010122869478147, 0.10009522450310879, 0.10008958430959061, 0.10008428546263975, 0.10007930676430346, 0.10007462837358139, 0.10007023171645012, 0.10006609940209241, 0.1000622151449035, 0.10005856369183745, 0.10005513075471764, 0.10005190294716823, 0.10004886772581241, 0.10004601333546778, 0.10004332875801741, 0.10004080366474161, 0.10003842837182515, 0.10003619379885378, 0.10003409143006642, 0.10003211327818723, 0.10003025185065913, 0.10002850011809236, 0.10002685148481089, 0.10002529976132619, 0.10002383913860895, 0.10002246416405974, 0.10002116971902641, 0.1000199509978006, 0.10001880348796416, 0.10001772295202137, 0.10001670541020284, 0.1000157471243861, 0.10001484458304617, 0.10001399448716836, 0.10001319373707755, 0.10001243942008009, 0.10001172879891931, 0.10001105930094946, 0.10001042850800235, 0.10000983414689071, 0.10000927408052032, 0.10000874629954518, 0.10000824891456414, 0.10000778014879939, 0.10000733833123578, 0.10000692189018458, 0.10000652934725499, 0.10000615931169762, 0.10000581047509359, 0.10000548160639139, 0.10000517154722584, 0.10000487920754637, 0.10000460356150558, 0.10000434364360503, 0.10000409854507339, 0.10000386741046988, 0.10000364943449278, 0.10000344385899534, 0.10000324997016083, 0.10000306709586934, 0.10000289460322165, 0.10000273189620207, 0.10000257841349705, 0.10000243362643783, 0.10000229703707364, 0.10000216817634522, 0.10000204660239533, 0.10000193189895533, 0.10000182367384616, 0.10000172155755464, 0.10000162520191053, 0.10000153427882733, 0.10000144847913522, 0.10000136751146511, 0.10000129110121314, 0.10000121898956371, 0.10000115093256298, 0.10000108670025486, 0.10000102607587588, 0.1000009688550734, 0.10000091484519431, 0.10000086386460733, 0.10000081574205748, 0.10000077031607019, 0.1000007274343869, 0.10000068695342776, 0.10000064873779527, 0.10000061265980123, 0.10000057859902137, 0.10000054644187378, 0.10000051608123589)
+
+df <- data.frame(errors, seq_along(errors))
+colnames(df) <- c("errors", "iteration")
+
+ggplot(data=df,
+       aes(x=iteration, y=errors)) +
+       geom_line()
+```
+
+## Running the application
+
+As with any Flask app, it's easiest to setup a virtual environment with a project local python and dependencies.  
+
+Steps to get up and running.
+
+1) Create local env
+2) pip install dependenies (flask, numpy, pandas)
+3) run the run.py file (you may have to chmod a+x on run_flask.py)
+
+If unfamiliar with flask, the following intro tutorial explains the above steps in more detail:
+
+http://blog.miguelgrinberg.com/post/the-flask-mega-tutorial-part-i-hello-world
+
+The application will start up on localhost on port 5000.  Please see flask's documentation if the default port creates a conflict on your system.
+
+## Running Just The Recommendation Engine
+
+If setting up the full flask app presents a hassle, the recommendation engine is flask agnostic and can be invoked from any other Python script (as long as you've included it correctly of course).  
+
+For example:
+
+```{python, eval=FALSE}
+    user_id=7
+    engine = RecommendationEngine()
+    user_exists, rec_movie = engine.generate_top_recommendation(user_id)
+```
+
+## A Sample Call
+
+Once flask is up and running, make calls as follows (note the /2/ represents the id of the user you're requesting the top movie rec for):
+
+http://localhost:5000/rec-engine/api/v1.0/users/2/top-rec
+
+The endpoint is an unauthenticated GET so typing the above URL into a browser should return data that looks like:
+
+```{javascript, eval=FALSE}
+{
+  "top_pick": "title15"
+}
+
+```
+## Possible improvements
+
+This is quite obviously not a production ready system.  The following list of things would need to be added before anyone would consider using this at scale:
+
+1) Use a real database (not CSV)
+2) Distribute iterations among nodes
+3) Don't load data in-line from data store with http requests
+4) Implement some sort of app to app authentication (ex mutual auth via SSL client and server certificates)
+5) Optimize the tweakable parameters in the algorithm
+
+## Referernces
+
+The cited work below was key in understanding the implementation details of ALS.  The code there was borrowed, tweaked and semi-operationalized. `r citep(bib)`
+
+```{r, results='asis', echo=FALSE}
+BibOptions(style="html", bib.style="authortitle")
+bibliography()
+```
+
+
+
+
+
+
+
+
+
+
